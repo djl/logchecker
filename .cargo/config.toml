@@ -1,0 +1,9 @@
+[build]
+target = "x86_64-unknown-linux-gnu"
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+# Other architectures: musl is static by default, and rust-lld needs no cross C toolchain.
+[target.'cfg(all(target_os = "linux", target_env = "musl"))']
+linker = "rust-lld"

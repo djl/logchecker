@@ -1,0 +1,14 @@
+[package]
+name = "logchecker"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+encoding_rs = "0.8.42"
+regex = "1.13.1"
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+yaml-rust2 = "0.13.0"
+
+[profile.release]
+strip = true

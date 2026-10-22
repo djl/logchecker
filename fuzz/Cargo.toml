@@ -1,0 +1,28 @@
+[package]
+name = "logchecker-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.logchecker]
+path = ".."
+
+[[bin]]
+name = "analyze"
+path = "fuzz_targets/analyze.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "checksum"
+path = "fuzz_targets/checksum.rs"
+test = false
+doc = false
+bench = false
