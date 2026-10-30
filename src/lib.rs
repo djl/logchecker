@@ -1,5 +1,4 @@
 pub mod charset;
-pub mod console;
 pub mod checksum;
 mod codepages;
 pub mod php;

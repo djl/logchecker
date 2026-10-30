@@ -1,54 +1,36 @@
 # logchecker
 
-> **Experimental.** This is a new rewrite and has not seen production
-> use yet. Expect bugs, and don't rely on it in place of the
-> originals. While this _is_ byte-for-byte identical to the original,
-> bugs can happen.
+A logchecker in Rust.
 
-A single static binary that replaces [OPSnet/Logchecker](https://github.com/OPSnet/Logchecker)
-(PHP).
-
-It scores EAC, XLD and whipper rip logs and verifies their checksums. Scores, details,
-HTML output and checksum verdicts are identical to the originals. The command-line syntax is
-its own.
-
-It tracks Logchecker's `master` branch (currently
-[`ca56547`](https://github.com/OPSnet/Logchecker/commit/ca56547)), not the 0.14.4 release.
-Since 0.14.4, upstream checks checksums natively instead of calling the Python checkers
-([`0498639`](https://github.com/OPSnet/Logchecker/commit/0498639f4aba65cccb012eaa4bac9e7d5e388f55)),
-and the verdicts changed: an EAC log with several entries now gets the verdict of its worst
-entry, where 0.14.4 said `checksum_ok` if any entry passed.
+It scores EAC, XLD and whipper rip logs and verifies their checksums.
+Scores, details and checksum verdicts are taken from
+[OPSnet/Logchecker](https://github.com/OPSnet/Logchecker)'s `master`
+branch (currently
+[`ca56547`](https://github.com/OPSnet/Logchecker/commit/ca56547))
+to get the latest scoring system.
 
 ## Usage
 
 ```
-logchecker analyze [--html] [--no_text] [--json] <file> [<out_file> [<details>]]
-logchecker decode <file> [<out_file>]
-logchecker translate [-l|--language <code>] <file> [<out_file>]
+logchecker analyze [-o <out_file>] <file>
+logchecker decode [-o <out_file>] <file>
+logchecker translate [-l|--language <code>] [-o <out_file>] <file>
 
-Global options: --ansi, --no-ansi, -V/--version, -h/--help
+Global options: -V/--version, -h/--help
 ```
 
-| Command     | Replaces                         | Does                                                       |
-|-------------|----------------------------------|------------------------------------------------------------|
-| `analyze`   | `logchecker analyze`             | Score a log, list the deductions, optionally write the HTML log |
-| `decode`    | `logchecker decode`              | Detect the log's text encoding and convert it to UTF-8     |
-| `translate` | `logchecker translate`           | Translate a non-English EAC log to English                 |
+| Command     | Does                                                   |
+|-------------|--------------------------------------------------------|
+| `analyze`   | Score a log and print the result as JSON               |
+| `decode`    | Detect the log's text encoding and convert it to UTF-8 |
+| `translate` | Translate a non-English EAC log to English             |
 
-`analyze` (also spelt `analyse`) prints the ripper, version, language, score, checksum state,
-deductions and the log text. `--json` prints the details as JSON instead, `--no_text` leaves out
-the log text, and `--html` prints the log as HTML. With `<out_file>`, the HTML log is written
-there and nothing is printed unless `--json` is given; `<details>` gets the details JSON. To read
-a log from a pipe, pass `/dev/stdin` as `<file>`.
+`analyze` (also spelt `analyse`) prints the ripper, version, language, score, checksum state and
+deductions as JSON, or writes them to `<out_file>` with `-o`. To read a log from a pipe, pass
+`/dev/stdin` as `<file>`.
 
-`decode` and `translate` print the converted log, or write it to `<out_file>`. `translate`
-detects the log's language unless `-l` names it.
-
-Colour is used when stdout is a terminal and `NO_COLOR` is unset. `--ansi` or `--no-ansi`
-overrides that.
-
-The HTML log (`--html` and `<out_file>`) is not escaped, as upstream's isn't: text from the log,
-such as the drive name, can contain HTML tags. Sanitise it before showing it in a browser.
+`decode` and `translate` print the converted log, or write it to `<out_file>` with `-o`.
+`translate` detects the log's language unless `-l` names it.
 
 ## Building
 
@@ -109,7 +91,7 @@ The other fixtures are copied unchanged from the upstream repos into `tests/fixt
 
 Needs a nightly toolchain and `cargo install cargo-fuzz`. In the devenv shell, use `fuzz` in place of
 `cargo fuzz`. There are two targets: `analyze` (the whole `analyze` path, checksums included) and
-`checksum` (the `eac` and `xld` commands).
+`checksum` (the EAC and XLD checksum verification).
 
 ```
 mkdir -p fuzz/corpus/{analyze,checksum}
@@ -137,7 +119,6 @@ inputs are saved in `fuzz/artifacts/<target>/`; rerun one with `cargo fuzz run a
 | `src/translator.rs` | EAC log translation, using `resources/languages/*.json` |
 | `resources/` | Upstream's drive offset table and EAC translations, embedded in the binary |
 | `src/php.rs` | The PHP semantics the port relies on: loose comparison, `version_compare`, `json_encode`, … |
-| `src/console.rs` | Symfony Console's style-tag formatter |
 | `src/main.rs` | The command-line interface |
 | `src/lib.rs` | The library crate the binary, tests and fuzz targets use |
 | `scripts/` | Generators for `src/uchardet_data.rs` and `src/codepages.rs` |
@@ -149,6 +130,8 @@ inputs are saved in `fuzz/artifacts/<target>/`; rerun one with `cargo fuzz run a
 - `analyze`'s details JSON escapes non-ASCII characters as `\uXXXX`, as PHP's `json_encode`
   does. A few upstream fixture files store those characters literally. The decoded content
   is the same.
+- `decode` and `translate` print the converted log as is. Upstream passes it through Symfony's style-tag
+  formatter on stdout, so text like `<info>` in a log becomes colour codes or disappears there.
 - Some rarer multibyte encodings cannot be decoded: EUC-TW, HZ, ISO-2022-CN and ISO-2022-KR.
   PHP's iconv converts them.
 - Whipper logs that contain YAML aliases are rejected as unparseable. Whipper never writes

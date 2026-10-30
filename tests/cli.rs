@@ -3,30 +3,67 @@
 use std::process::Command;
 
 fn run(args: &[&str]) -> (String, i32) {
-    let out = Command::new(env!("CARGO_BIN_EXE_logchecker")).args(args).env_remove("NO_COLOR").output().unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_logchecker")).args(args).output().unwrap();
     (String::from_utf8_lossy(&out.stdout).into_owned(), out.status.code().unwrap())
 }
 
 const FIX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 
 #[test]
-fn analyze_plain_output_strips_styles() {
-    let (out, code) = run(&["analyze", &format!("{FIX}/logchecker/eac/originals/en_1.log")]);
-    assert_eq!(code, 0);
-    assert!(out.starts_with("Ripper  : EAC\nVersion : "), "{out}");
-    assert!(out.contains("\nLog Text:\n\n"));
-    assert!(!out.contains("<fg=") && !out.contains("\x1b["));
-    assert_eq!(run(&["analyze", "missing.log"]), ("Invalid file\n".into(), 1));
-    assert_eq!(run(&["--version"]).0, "logchecker 0.1.0 (upstream ca56547)\n");
-}
-
-#[test]
-fn analyze_json() {
-    let (out, code) = run(&["analyze", "--json", &format!("{FIX}/logchecker/eac/originals/en_1.log")]);
+fn analyze_prints_json() {
+    let log = format!("{FIX}/logchecker/eac/originals/en_1.log");
+    let (out, code) = run(&["analyze", &log]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(v["ripper"], "EAC");
     assert!(v["score"].is_i64() && v["details"].is_array());
+    assert_eq!(run(&["analyze", "missing.log"]), ("Invalid file\n".into(), 1));
+    assert_eq!(run(&["--version"]).0, "logchecker 0.1.0 (upstream ca56547)\n");
+    assert_eq!(run(&["analyze", "--html", &log]).1, 1);
+}
+
+#[test]
+fn analyze_writes_json_to_out_file() {
+    let path = format!("{}/analyze.json", env!("CARGO_TARGET_TMPDIR"));
+    let log = format!("{FIX}/logchecker/eac/originals/en_1.log");
+    let (out, code) = run(&["analyze", "-o", &path, &log]);
+    assert_eq!((out.as_str(), code), ("", 0));
+    let written = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(written.trim_end(), run(&["analyze", &log]).0.trim_end());
+}
+
+// Symfony's formatter used to eat or colour tag-like text on stdout, but not in <out_file>.
+#[test]
+fn decode_and_translate_keep_tag_like_text() {
+    let log = "<info>a</info> <fg=red>b</>\n";
+    let path = write_tmp("tags.log", log);
+    assert_eq!(run(&["decode", &path]).0, log);
+    assert!(run(&["translate", "-l", "en", &path]).0.ends_with(log));
+}
+
+#[test]
+fn decode_writes_to_out_file() {
+    let path = write_tmp("decode_in.log", "some log\n");
+    let out_file = format!("{}/decode_out.log", env!("CARGO_TARGET_TMPDIR"));
+    assert_eq!(run(&["decode", "-o", &out_file, &path]), (String::new(), 0));
+    assert_eq!(std::fs::read_to_string(&out_file).unwrap(), "some log\n");
+    assert_eq!(run(&["decode", &path, &out_file]).1, 1);
+}
+
+#[test]
+fn translate_writes_to_out_file() {
+    let path = write_tmp("translate_in.log", "some log\n");
+    let out_file = format!("{}/translate_out.log", env!("CARGO_TARGET_TMPDIR"));
+    // -o last and first: its value must not be taken for the language.
+    for args in [["-l", "en", "-o", &out_file], ["-o", &out_file, "-l", "en"]] {
+        let _ = std::fs::remove_file(&out_file);
+        let mut args = args.to_vec();
+        args.insert(0, "translate");
+        args.push(&path);
+        assert_eq!(run(&args), (String::new(), 0));
+        assert_eq!(std::fs::read_to_string(&out_file).unwrap(), "some log\n");
+    }
+    assert_eq!(run(&["translate", "-l", "en", &path, &out_file]).1, 1);
 }
 
 fn write_tmp(name: &str, data: &str) -> String {
@@ -42,7 +79,7 @@ fn whipper_alias_bomb_is_rejected() {
     for i in 1..9 {
         log += &format!("a{i}: &a{i} [{}]\n", vec![format!("*a{}", i - 1); 10].join(","));
     }
-    let (out, code) = run(&["analyze", "--json", &write_tmp("alias_bomb.log", &log)]);
+    let (out, code) = run(&["analyze", &write_tmp("alias_bomb.log", &log)]);
     assert_eq!(code, 0);
     assert!(out.contains("Could not parse whipper log."), "{out}");
 }
@@ -53,7 +90,7 @@ fn many_parts_split_quickly() {
     let log = format!("Exact Audio Copy V1.0 from 1. January 2020\n{}", "x\nEnd of status report\n".repeat(100_000));
     let path = write_tmp("many_parts.log", &log);
     let start = std::time::Instant::now();
-    assert_eq!(run(&["analyze", "--no_text", &path]).1, 0);
+    assert_eq!(run(&["analyze", &path]).1, 0);
     assert!(start.elapsed().as_secs() < 5, "{:?}", start.elapsed());
 }
 
@@ -68,7 +105,7 @@ fn many_whipper_tracks_score_quickly() {
         .collect();
     let path = write_tmp("many_whipper_tracks.log", &format!("{head}Tracks:\n{tracks}{tail}"));
     let start = std::time::Instant::now();
-    let (out, code) = run(&["analyze", "--json", &path]);
+    let (out, code) = run(&["analyze", &path]);
     assert_eq!(code, 0);
     assert!(out.contains("CRC mismatch: 00007530 and 00007531"), "{}", &out[..out.len().min(500)]);
     assert!(start.elapsed().as_secs() < 5, "{:?}", start.elapsed());
@@ -82,7 +119,7 @@ fn analyze_from_stdin_keeps_checksum() {
     let log = std::fs::read(format!("{FIX}/xld/01.log")).unwrap();
     // A real pipe: a file on stdin could be reopened through /dev/stdin.
     let mut child = Command::new(env!("CARGO_BIN_EXE_logchecker"))
-        .args(["analyze", "--no_text", "/dev/stdin"])
+        .args(["analyze", "/dev/stdin"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -90,7 +127,7 @@ fn analyze_from_stdin_keeps_checksum() {
     child.stdin.take().unwrap().write_all(&log).unwrap();
     let out = child.wait_with_output().unwrap();
     let out = String::from_utf8_lossy(&out.stdout);
-    assert!(out.contains("Checksum: checksum_ok"), "{out}");
+    assert!(out.contains("\"checksum\": \"checksum_ok\""), "{out}");
 }
 
 // Printing into a closed pipe (`| head`) used to panic with exit code 101.
@@ -98,7 +135,7 @@ fn analyze_from_stdin_keeps_checksum() {
 fn closed_stdout_is_not_a_crash() {
     use std::process::Stdio;
     let mut child = Command::new(env!("CARGO_BIN_EXE_logchecker"))
-        .args(["analyze", "--json"])
+        .arg("analyze")
         .arg(format!("{FIX}/logchecker/eac/originals/en_1.log"))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

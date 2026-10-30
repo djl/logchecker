@@ -1,4 +1,4 @@
-//! The `eac` and `xld` commands' checksum verification.
+//! EAC and XLD checksum verification.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
